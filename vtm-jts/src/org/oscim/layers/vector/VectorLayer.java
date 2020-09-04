@@ -1,6 +1,7 @@
 /*
  * Copyright 2014 Hannes Janetzek
  * Copyright 2016-2019 devemux86
+ * Copyright 2020 marq24
  *
  * This file is part of the OpenScienceMap project (http://www.opensciencemap.org).
  *

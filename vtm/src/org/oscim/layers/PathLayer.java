@@ -146,6 +146,7 @@ public class PathLayer extends Layer implements GestureListener {
      *
      * @deprecated
      */
+    @Deprecated
     public void setGeom(GeometryBuffer geom) {
         mGeom = geom;
         mWorker.submit(10);

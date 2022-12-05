@@ -243,7 +243,7 @@ public class MapDatabase implements ITileDataSource {
             }
             mFileSize = mInputChannel.size();
         } catch (IOException e) {
-            log.severe(e.toString());
+            log.severe("" + e.toString());
             /* make sure that the file is closed */
             dispose();
             throw new IOException();
@@ -317,7 +317,7 @@ public class MapDatabase implements ITileDataSource {
                 processBlocks(sink, queryParameters, subFileParameter);
             sink.completed(QueryResult.SUCCESS);
         } catch (Throwable t) {
-            log.severe(t.toString());
+            log.severe("" + t.toString());
             sink.completed(QueryResult.FAILED);
         }
     }
@@ -329,7 +329,7 @@ public class MapDatabase implements ITileDataSource {
                 mInputChannel.close();
                 mInputChannel = null;
             } catch (IOException e) {
-                log.severe(e.toString());
+                log.severe("" + e.toString());
             }
         }
     }
@@ -744,8 +744,12 @@ public class MapDatabase implements ITileDataSource {
             }
 
             if (mapDataSink != null) {
-                if (!deduplicate || poi == null || (mapDataSink instanceof TileDataSink && ((TileDataSink) mapDataSink).hashPois.add(poi.hashCode())))
-                    mapDataSink.process(e);
+                try {
+                    if (!deduplicate || poi == null || (mapDataSink instanceof TileDataSink && ((TileDataSink) mapDataSink).hashPois.add(poi.hashCode())))
+                        mapDataSink.process(e);
+                } catch(Throwable t) {
+                    log.severe("" + t.toString());
+                }
             }
         }
 
@@ -890,230 +894,234 @@ public class MapDatabase implements ITileDataSource {
     private boolean processWays(QueryParameters queryParameters, ITileDataSink mapDataSink,
                                 int numberOfWays, BoundingBox boundingBox, boolean filterRequired,
                                 Selector selector, List<Way> ways, ReadBuffer readBuffer) {
+        try {
+            Tag[] wayTags = mTileSource.fileInfo.wayTags;
+            MapElement e = mElem;
 
-        Tag[] wayTags = mTileSource.fileInfo.wayTags;
-        MapElement e = mElem;
+            int wayDataBlocks;
 
-        int wayDataBlocks;
-
-        // skip string block
-        int stringsSize = 0;
-        stringOffset = 0;
-
-        if (mTileSource.experimental) {
-            stringsSize = readBuffer.readUnsignedInt();
-            stringOffset = readBuffer.getBufferPosition();
-            readBuffer.skipBytes(stringsSize);
-        }
-
-        //setTileClipping(queryParameters);
-
-        for (int elementCounter = numberOfWays; elementCounter != 0; --elementCounter) {
-            /* reset to common tag position */
-            e.tags.clear();
-
-            if (mDebugFile) {
-                // get and check the way signature
-                mSignatureWay = readBuffer.readUTF8EncodedString(SIGNATURE_LENGTH_WAY);
-                if (!mSignatureWay.startsWith("---WayStart")) {
-                    log.warning("invalid way signature: " + mSignatureWay);
-                    log.warning(DEBUG_SIGNATURE_BLOCK + mSignatureBlock);
-                    return false;
-                }
-            }
-
-            if (queryParameters.useTileBitmask) {
-                elementCounter = readBuffer.skipWays(queryParameters.queryTileBitmask,
-                        elementCounter);
-
-                if (elementCounter == 0)
-                    return true;
-
-                if (elementCounter < 0)
-                    return false;
-
-                if (mTileSource.experimental && readBuffer.lastTagPosition > 0) {
-                    int pos = readBuffer.getBufferPosition();
-                    readBuffer.setBufferPosition(readBuffer.lastTagPosition);
-
-                    byte numberOfTags =
-                            (byte) (readBuffer.readByte() & WAY_NUMBER_OF_TAGS_BITMASK);
-                    if (!readBuffer.readTags(e.tags, wayTags, numberOfTags))
-                        return false;
-
-                    readBuffer.setBufferPosition(pos);
-                }
-            } else {
-                int wayDataSize = readBuffer.readUnsignedInt();
-                if (wayDataSize < 0) {
-                    log.warning("invalid way data size: " + wayDataSize);
-                    if (mDebugFile) {
-                        log.warning(DEBUG_SIGNATURE_BLOCK + mSignatureBlock);
-                    }
-                    log.severe("BUG way 2");
-                    return false;
-                }
-
-                /* ignore the way tile bitmask (2 bytes) */
-                readBuffer.skipBytes(2);
-            }
-
-            /* get the special byte which encodes multiple flags */
-            byte specialByte = readBuffer.readByte();
-
-            /* bit 1-4 represent the layer */
-            byte layer = (byte) ((specialByte & WAY_LAYER_BITMASK) >>> WAY_LAYER_SHIFT);
-            /* bit 5-8 represent the number of tag IDs */
-            byte numberOfTags = (byte) (specialByte & WAY_NUMBER_OF_TAGS_BITMASK);
-
-            if (numberOfTags != 0) {
-                if (!readBuffer.readTags(e.tags, wayTags, numberOfTags))
-                    return false;
-            }
-
-            /* get the feature bitmask (1 byte) */
-            byte featureByte = readBuffer.readByte();
-
-            /* bit 1-6 enable optional features */
-            boolean featureWayDoubleDeltaEncoding =
-                    (featureByte & WAY_FEATURE_DOUBLE_DELTA_ENCODING) != 0;
-
-            boolean hasName = (featureByte & WAY_FEATURE_NAME) != 0;
-            boolean hasHouseNr = (featureByte & WAY_FEATURE_HOUSE_NUMBER) != 0;
-            boolean hasRef = (featureByte & WAY_FEATURE_REF) != 0;
+            // skip string block
+            int stringsSize = 0;
+            stringOffset = 0;
 
             if (mTileSource.experimental) {
-                if (hasName) {
-                    int textPos = readBuffer.readUnsignedInt();
-                    String str = mTileSource.extractLocalized(readBuffer.readUTF8EncodedStringAt(stringOffset + textPos));
-                    e.tags.add(new Tag(Tag.KEY_NAME, str, false));
-                }
-                if (hasHouseNr) {
-                    int textPos = readBuffer.readUnsignedInt();
-                    String str = readBuffer.readUTF8EncodedStringAt(stringOffset + textPos);
-                    e.tags.add(new Tag(Tag.KEY_HOUSE_NUMBER, str, false));
-                }
-                if (hasRef) {
-                    int textPos = readBuffer.readUnsignedInt();
-                    String str = readBuffer.readUTF8EncodedStringAt(stringOffset + textPos);
-                    e.tags.add(new Tag(Tag.KEY_REF, str, false));
-                }
-            } else {
-                if (hasName) {
-                    String str = mTileSource.extractLocalized(readBuffer.readUTF8EncodedString());
-                    e.tags.add(new Tag(Tag.KEY_NAME, str, false));
-                }
-                if (hasHouseNr) {
-                    String str = readBuffer.readUTF8EncodedString();
-                    e.tags.add(new Tag(Tag.KEY_HOUSE_NUMBER, str, false));
-                }
-                if (hasRef) {
-                    String str = readBuffer.readUTF8EncodedString();
-                    e.tags.add(new Tag(Tag.KEY_REF, str, false));
-                }
+                stringsSize = readBuffer.readUnsignedInt();
+                stringOffset = readBuffer.getBufferPosition();
+                readBuffer.skipBytes(stringsSize);
             }
 
-            int[] labelPosition = null;
-            if ((featureByte & WAY_FEATURE_LABEL_POSITION) != 0) {
-                labelPosition = readOptionalLabelPosition(readBuffer);
-            }
+            //setTileClipping(queryParameters);
 
-            if ((featureByte & WAY_FEATURE_DATA_BLOCKS_BYTE) != 0) {
-                wayDataBlocks = readBuffer.readUnsignedInt();
+            for (int elementCounter = numberOfWays; elementCounter != 0; --elementCounter) {
+                /* reset to common tag position */
+                e.tags.clear();
 
-                if (wayDataBlocks < 1) {
-                    log.warning("invalid number of way data blocks: " + wayDataBlocks);
-                    logDebugSignatures();
-                    return false;
-                }
-            } else {
-                wayDataBlocks = 1;
-            }
-
-            /* some guessing if feature is a line or a polygon */
-            boolean linearFeature = !OSMUtils.isArea(e);
-
-            for (int wayDataBlock = 0; wayDataBlock < wayDataBlocks; wayDataBlock++) {
-                e.clear();
-
-                List<GeoPoint[]> wayNodes = null;
-                if (ways != null)
-                    wayNodes = new ArrayList<>();
-
-                if (!processWayDataBlock(e, featureWayDoubleDeltaEncoding, linearFeature, wayNodes, labelPosition, readBuffer))
-                    return false;
-
-                /* drop invalid outer ring */
-                if (e.isPoly() && e.index[0] < 6) {
-                    continue;
-                }
-
-                if (labelPosition != null && wayDataBlock == 0)
-                    e.setLabelPosition(mTileProjection.projectLon(labelPosition[0]), mTileProjection.projectLat(labelPosition[1]));
-                else
-                    e.labelPosition = null;
-
-                // When a way will be rendered then typically a label / symbol will be applied
-                // by the render theme. If the way does not come with a defined labelPosition
-                // we should calculate a position, that is based on all points of the given way.
-                // This "auto" position calculation is also done in the LabelTileLoaderHook class
-                // but then the points of the way have been already reduced cause of the clipping
-                // that is happening. So the suggestion here is to calculate the centroid of the way
-                // and use that as centroidPosition of the element.
-                if (Parameters.POLY_CENTROID && e.labelPosition == null) {
-                    float x = 0;
-                    float y = 0;
-                    int n = e.index[0];
-                    for (int i = 0; i < n; ) {
-                        x += e.points[i++];
-                        y += e.points[i++];
+                if (mDebugFile) {
+                    // get and check the way signature
+                    mSignatureWay = readBuffer.readUTF8EncodedString(SIGNATURE_LENGTH_WAY);
+                    if (!mSignatureWay.startsWith("---WayStart")) {
+                        log.warning("invalid way signature: " + mSignatureWay);
+                        log.warning(DEBUG_SIGNATURE_BLOCK + mSignatureBlock);
+                        return false;
                     }
-                    x /= (n / 2);
-                    y /= (n / 2);
-                    e.setCentroidPosition(x, y);
                 }
 
-                // Avoid clipping for buildings, which slows rendering.
-                // But clip everything if buildings are displayed.
-                if (!e.tags.containsKey(Tag.KEY_BUILDING)
-                        && !e.tags.containsKey(Tag.KEY_BUILDING_PART)) {
-                    if (!mTileClipper.clip(e))
-                        continue;
-                } else if (queryParameters.queryZoomLevel >= BuildingLayer.MIN_ZOOM) {
-                    if (!mTileSeparator.separate(e))
-                        continue;
+                if (queryParameters.useTileBitmask) {
+                    elementCounter = readBuffer.skipWays(queryParameters.queryTileBitmask,
+                            elementCounter);
+
+                    if (elementCounter == 0)
+                        return true;
+
+                    if (elementCounter < 0)
+                        return false;
+
+                    if (mTileSource.experimental && readBuffer.lastTagPosition > 0) {
+                        int pos = readBuffer.getBufferPosition();
+                        readBuffer.setBufferPosition(readBuffer.lastTagPosition);
+
+                        byte numberOfTags =
+                                (byte) (readBuffer.readByte() & WAY_NUMBER_OF_TAGS_BITMASK);
+                        if (!readBuffer.readTags(e.tags, wayTags, numberOfTags))
+                            return false;
+
+                        readBuffer.setBufferPosition(pos);
+                    }
+                } else {
+                    int wayDataSize = readBuffer.readUnsignedInt();
+                    if (wayDataSize < 0) {
+                        log.warning("invalid way data size: " + wayDataSize);
+                        if (mDebugFile) {
+                            log.warning(DEBUG_SIGNATURE_BLOCK + mSignatureBlock);
+                        }
+                        log.severe("BUG way 2");
+                        return false;
+                    }
+
+                    /* ignore the way tile bitmask (2 bytes) */
+                    readBuffer.skipBytes(2);
                 }
-                e.simplify(1, true);
 
-                e.setLayer(layer);
+                /* get the special byte which encodes multiple flags */
+                byte specialByte = readBuffer.readByte();
 
-                Way way = null;
-                if (ways != null) {
-                    BoundingBox wayFilterBbox = boundingBox.extendMeters(wayFilterDistance);
-                    GeoPoint[][] wayNodesArray = wayNodes.toArray(new GeoPoint[wayNodes.size()][]);
-                    if (!filterRequired || !wayFilterEnabled || wayFilterBbox.intersectsArea(wayNodesArray)) {
-                        List<Tag> tags = new ArrayList<>();
-                        for (int i = 0; i < e.tags.size(); i++)
-                            tags.add(e.tags.get(i));
-                        if (Selector.ALL == selector || hasName || hasHouseNr || hasRef || wayAsLabelTagFilter(tags)) {
-                            GeoPoint labelPos = labelPosition != null ? new GeoPoint(labelPosition[1] / 1E6, labelPosition[0] / 1E6) : null;
-                            way = new Way(layer, tags, wayNodesArray, labelPos, e.type);
-                            ways.add(way);
+                /* bit 1-4 represent the layer */
+                byte layer = (byte) ((specialByte & WAY_LAYER_BITMASK) >>> WAY_LAYER_SHIFT);
+                /* bit 5-8 represent the number of tag IDs */
+                byte numberOfTags = (byte) (specialByte & WAY_NUMBER_OF_TAGS_BITMASK);
+
+                if (numberOfTags != 0) {
+                    if (!readBuffer.readTags(e.tags, wayTags, numberOfTags))
+                        return false;
+                }
+
+                /* get the feature bitmask (1 byte) */
+                byte featureByte = readBuffer.readByte();
+
+                /* bit 1-6 enable optional features */
+                boolean featureWayDoubleDeltaEncoding =
+                        (featureByte & WAY_FEATURE_DOUBLE_DELTA_ENCODING) != 0;
+
+                boolean hasName = (featureByte & WAY_FEATURE_NAME) != 0;
+                boolean hasHouseNr = (featureByte & WAY_FEATURE_HOUSE_NUMBER) != 0;
+                boolean hasRef = (featureByte & WAY_FEATURE_REF) != 0;
+
+                if (mTileSource.experimental) {
+                    if (hasName) {
+                        int textPos = readBuffer.readUnsignedInt();
+                        String str = mTileSource.extractLocalized(readBuffer.readUTF8EncodedStringAt(stringOffset + textPos));
+                        e.tags.add(new Tag(Tag.KEY_NAME, str, false));
+                    }
+                    if (hasHouseNr) {
+                        int textPos = readBuffer.readUnsignedInt();
+                        String str = readBuffer.readUTF8EncodedStringAt(stringOffset + textPos);
+                        e.tags.add(new Tag(Tag.KEY_HOUSE_NUMBER, str, false));
+                    }
+                    if (hasRef) {
+                        int textPos = readBuffer.readUnsignedInt();
+                        String str = readBuffer.readUTF8EncodedStringAt(stringOffset + textPos);
+                        e.tags.add(new Tag(Tag.KEY_REF, str, false));
+                    }
+                } else {
+                    if (hasName) {
+                        String str = mTileSource.extractLocalized(readBuffer.readUTF8EncodedString());
+                        e.tags.add(new Tag(Tag.KEY_NAME, str, false));
+                    }
+                    if (hasHouseNr) {
+                        String str = readBuffer.readUTF8EncodedString();
+                        e.tags.add(new Tag(Tag.KEY_HOUSE_NUMBER, str, false));
+                    }
+                    if (hasRef) {
+                        String str = readBuffer.readUTF8EncodedString();
+                        e.tags.add(new Tag(Tag.KEY_REF, str, false));
+                    }
+                }
+
+                int[] labelPosition = null;
+                if ((featureByte & WAY_FEATURE_LABEL_POSITION) != 0) {
+                    labelPosition = readOptionalLabelPosition(readBuffer);
+                }
+
+                if ((featureByte & WAY_FEATURE_DATA_BLOCKS_BYTE) != 0) {
+                    wayDataBlocks = readBuffer.readUnsignedInt();
+
+                    if (wayDataBlocks < 1) {
+                        log.warning("invalid number of way data blocks: " + wayDataBlocks);
+                        logDebugSignatures();
+                        return false;
+                    }
+                } else {
+                    wayDataBlocks = 1;
+                }
+
+                /* some guessing if feature is a line or a polygon */
+                boolean linearFeature = !OSMUtils.isArea(e);
+
+                for (int wayDataBlock = 0; wayDataBlock < wayDataBlocks; wayDataBlock++) {
+                    e.clear();
+
+                    List<GeoPoint[]> wayNodes = null;
+                    if (ways != null)
+                        wayNodes = new ArrayList<>();
+
+                    if (!processWayDataBlock(e, featureWayDoubleDeltaEncoding, linearFeature, wayNodes, labelPosition, readBuffer))
+                        return false;
+
+                    /* drop invalid outer ring */
+                    if (e.isPoly() && e.index[0] < 6) {
+                        continue;
+                    }
+
+                    if (labelPosition != null && wayDataBlock == 0)
+                        e.setLabelPosition(mTileProjection.projectLon(labelPosition[0]), mTileProjection.projectLat(labelPosition[1]));
+                    else
+                        e.labelPosition = null;
+
+                    // When a way will be rendered then typically a label / symbol will be applied
+                    // by the render theme. If the way does not come with a defined labelPosition
+                    // we should calculate a position, that is based on all points of the given way.
+                    // This "auto" position calculation is also done in the LabelTileLoaderHook class
+                    // but then the points of the way have been already reduced cause of the clipping
+                    // that is happening. So the suggestion here is to calculate the centroid of the way
+                    // and use that as centroidPosition of the element.
+                    if (Parameters.POLY_CENTROID && e.labelPosition == null) {
+                        float x = 0;
+                        float y = 0;
+                        int n = e.index[0];
+                        for (int i = 0; i < n; ) {
+                            x += e.points[i++];
+                            y += e.points[i++];
+                        }
+                        x /= (n / 2);
+                        y /= (n / 2);
+                        e.setCentroidPosition(x, y);
+                    }
+
+                    // Avoid clipping for buildings, which slows rendering.
+                    // But clip everything if buildings are displayed.
+                    if (!e.tags.containsKey(Tag.KEY_BUILDING)
+                            && !e.tags.containsKey(Tag.KEY_BUILDING_PART)) {
+                        if (!mTileClipper.clip(e))
+                            continue;
+                    } else if (queryParameters.queryZoomLevel >= BuildingLayer.MIN_ZOOM) {
+                        if (!mTileSeparator.separate(e))
+                            continue;
+                    }
+                    e.simplify(1, true);
+
+                    e.setLayer(layer);
+
+                    Way way = null;
+                    if (ways != null) {
+                        BoundingBox wayFilterBbox = boundingBox.extendMeters(wayFilterDistance);
+                        GeoPoint[][] wayNodesArray = wayNodes.toArray(new GeoPoint[wayNodes.size()][]);
+                        if (!filterRequired || !wayFilterEnabled || wayFilterBbox.intersectsArea(wayNodesArray)) {
+                            List<Tag> tags = new ArrayList<>();
+                            for (int i = 0; i < e.tags.size(); i++)
+                                tags.add(e.tags.get(i));
+                            if (Selector.ALL == selector || hasName || hasHouseNr || hasRef || wayAsLabelTagFilter(tags)) {
+                                GeoPoint labelPos = labelPosition != null ? new GeoPoint(labelPosition[1] / 1E6, labelPosition[0] / 1E6) : null;
+                                way = new Way(layer, tags, wayNodesArray, labelPos, e.type);
+                                ways.add(way);
+                            }
+                        }
+                    }
+
+                    if (mapDataSink != null) {
+                        if (!deduplicate || way == null || (mapDataSink instanceof TileDataSink && ((TileDataSink) mapDataSink).hashWays.add(way.hashCode()))) {
+                            if (mapDataSink instanceof TileDataSink)
+                                e.level = e.isLine() ? ((TileDataSink) mapDataSink).levels : ((TileDataSink) mapDataSink).level;
+                            mapDataSink.process(e);
                         }
                     }
                 }
-
-                if (mapDataSink != null) {
-                    if (!deduplicate || way == null || (mapDataSink instanceof TileDataSink && ((TileDataSink) mapDataSink).hashWays.add(way.hashCode()))) {
-                        if (mapDataSink instanceof TileDataSink)
-                            e.level = e.isLine() ? ((TileDataSink) mapDataSink).levels : ((TileDataSink) mapDataSink).level;
-                        mapDataSink.process(e);
-                    }
-                }
             }
-        }
 
-        return true;
+            return true;
+        } catch(Throwable t) {
+            log.severe("" + t.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -1193,7 +1201,7 @@ public class MapDatabase implements ITileDataSource {
             QueryCalculations.calculateBlocks(queryParameters, subFileParameter);
             processBlocks(queryParameters, subFileParameter, Tile.getBoundingBox(upperLeft, lowerRight), selector, mapReadResult);
         } catch (IOException e) {
-            log.severe(e.toString());
+            log.severe("" + e.toString());
             return null;
         }
 
@@ -1272,7 +1280,12 @@ public class MapDatabase implements ITileDataSource {
      * @return true if tile is part of database.
      */
     public boolean supportsTile(Tile tile) {
-        return supportsArea(tile.getBoundingBox(), tile.zoomLevel);
+        try {
+            return supportsArea(tile.getBoundingBox(), tile.zoomLevel);
+        } catch(Throwable t) {
+            log.severe("" + t.toString());
+            return false;
+        }
     }
 
     /**
@@ -1282,7 +1295,12 @@ public class MapDatabase implements ITileDataSource {
      * @return true if complete tile is part of database.
      */
     public boolean supportsFullTile(Tile tile) {
-        return supportsFullArea(tile.getBoundingBox(), tile.zoomLevel);
+        try {
+            return supportsFullArea(tile.getBoundingBox(), tile.zoomLevel);
+        } catch(Throwable t) {
+            log.severe("" + t.toString());
+            return false;
+        }
     }
 
     /**
@@ -1293,8 +1311,13 @@ public class MapDatabase implements ITileDataSource {
      * @return true if area is part of the database.
      */
     public boolean supportsArea(BoundingBox boundingBox, int zoomLevel) {
-        return boundingBox.intersects(mTileSource.getMapInfo().boundingBox)
-                && (zoomLevel >= this.zoomLevelMin && zoomLevel <= this.zoomLevelMax);
+        try {
+            return boundingBox.intersects(mTileSource.getMapInfo().boundingBox)
+                    && (zoomLevel >= this.zoomLevelMin && zoomLevel <= this.zoomLevelMax);
+        } catch(Throwable t) {
+            log.severe("" + t.toString());
+            return false;
+        }
     }
 
     /**
@@ -1305,15 +1328,20 @@ public class MapDatabase implements ITileDataSource {
      * @return true if complete area is part of the database.
      */
     public boolean supportsFullArea(BoundingBox boundingBox, int zoomLevel) {
-        final BoundingBox bbox1 = mTileSource.getMapInfo().boundingBox;
-        final BoundingBox bbox2 = boundingBox;
-        return bbox1.intersects(bbox2)
-                && zoomLevel >= this.zoomLevelMin
-                && zoomLevel <= this.zoomLevelMax
-                && bbox1.contains(bbox2.maxLatitudeE6, bbox2.maxLongitudeE6)
-                && bbox1.contains(bbox2.minLatitudeE6, bbox2.minLongitudeE6)
-                && bbox1.contains(bbox2.maxLatitudeE6, bbox2.minLongitudeE6)
-                && bbox1.contains(bbox2.minLatitudeE6, bbox2.maxLongitudeE6);
+        try {
+            final BoundingBox bbox1 = mTileSource.getMapInfo().boundingBox;
+            final BoundingBox bbox2 = boundingBox;
+            return bbox1.intersects(bbox2)
+                    && zoomLevel >= this.zoomLevelMin
+                    && zoomLevel <= this.zoomLevelMax
+                    && bbox1.contains(bbox2.maxLatitudeE6, bbox2.maxLongitudeE6)
+                    && bbox1.contains(bbox2.minLatitudeE6, bbox2.minLongitudeE6)
+                    && bbox1.contains(bbox2.maxLatitudeE6, bbox2.minLongitudeE6)
+                    && bbox1.contains(bbox2.minLatitudeE6, bbox2.maxLongitudeE6);
+        } catch(Throwable t) {
+            log.severe("" + t.toString());
+            return false;
+        }
     }
 
     /**

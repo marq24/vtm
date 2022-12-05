@@ -393,7 +393,11 @@ public class MapView extends GLSurfaceView {
 
         @Override
         public void onDrawFrame(GL10 gl) {
-            super.onDrawFrame();
+            try {
+                super.onDrawFrame();
+            } catch(Throwable t) {
+                log.fine("" + t.getMessage());
+            }
         }
     }
 }

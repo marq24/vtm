@@ -98,7 +98,7 @@ public class VectorTileLoader extends TileLoader implements RenderStyle.Callback
         }
         renderTheme = mTileLayer.getTheme();
         if (renderTheme == null) {
-            log.severe("no theme is set");
+            log.info("no theme is set yet - tile loading not possible - waiting for ASYNC Theme loading...");
             return false;
         }
 

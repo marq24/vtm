@@ -17,10 +17,11 @@
 
 package org.oscim.utils.async;
 
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -34,6 +35,7 @@ import java.util.concurrent.TimeUnit;
  * @author badlogic
  */
 public class AsyncExecutor {
+
     private final ExecutorService executor;
     private final TaskQueue mainloop;
 
@@ -45,15 +47,22 @@ public class AsyncExecutor {
      */
     public AsyncExecutor(int maxConcurrent, TaskQueue mainloop) {
         this.mainloop = mainloop;
-        executor = Executors.newFixedThreadPool(maxConcurrent, new ThreadFactory() {
-            @Override
-            public Thread newThread(Runnable r) {
-                Thread thread = new Thread(r, "VtmAsyncExecutor");
-                thread.setDaemon(true);
-                thread.setPriority(Thread.NORM_PRIORITY - 1);
-                return thread;
-            }
-        });
+        // Executors.newFixedThreadPool will make use of 'LinkedBlockingQueue' - this Queue
+        // create plenty of @Node objects which blows up the memory consumption of the
+        // app - SynchronousQueue seams to be way more avoid "new Object" aware
+        executor =  new ThreadPoolExecutor(maxConcurrent, maxConcurrent,
+                0L, TimeUnit.MILLISECONDS,
+                //new SynchronousQueue<Runnable>(false),
+                new ArrayBlockingQueue<Runnable>(4096),
+                new ThreadFactory() {
+                    @Override
+                    public Thread newThread(Runnable r) {
+                        Thread thread = new Thread(r, "VtmAsyncExecutor");
+                        thread.setDaemon(true);
+                        thread.setPriority(Thread.NORM_PRIORITY - 1);
+                        return thread;
+                    }
+                });
     }
 
     /**
@@ -63,11 +72,11 @@ public class AsyncExecutor {
      *
      * @param task the task to execute asynchronously
      */
+
     public boolean post(Runnable task) {
         if (task instanceof AsyncTask) {
             ((AsyncTask) task).setTaskQueue(mainloop);
         }
-
         try {
             executor.execute(task);
         } catch (RejectedExecutionException e) {

@@ -17,10 +17,11 @@
 
 package org.oscim.utils.async;
 
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -45,7 +46,14 @@ public class AsyncExecutor {
      */
     public AsyncExecutor(int maxConcurrent, TaskQueue mainloop) {
         this.mainloop = mainloop;
-        executor = Executors.newFixedThreadPool(maxConcurrent, new ThreadFactory() {
+        // Executors.newFixedThreadPool will make use of 'LinkedBlockingQueue' - this Queue
+        // create plenty of @Node objects which blows up the memory consumption of the
+        // app - SynchronousQueue seams to be way more avoid "new Object" aware
+        executor =  new ThreadPoolExecutor(maxConcurrent, maxConcurrent,
+                0L, TimeUnit.MILLISECONDS,
+                //new SynchronousQueue<Runnable>(false),
+                new ArrayBlockingQueue<Runnable>(4096),
+                new ThreadFactory() {
             @Override
             public Thread newThread(Runnable r) {
                 Thread thread = new Thread(r, "VtmAsyncExecutor");

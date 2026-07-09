@@ -82,7 +82,7 @@ public class MultiMapFileTileSource extends TileSource implements IMapFileTileSo
                 mapFile.setPriority(mapFileTileSource.getPriority());
                 multiMapFile.add(mapFile);
             } catch (IOException e) {
-                log.fine(e.toString());
+                log.fine("" + e.toString());
             }
         }
         return new OverzoomTileDataSource(multiMapFile, mOverZoom);

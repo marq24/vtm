@@ -607,16 +607,18 @@ public class TileManager {
      */
     public void jobCompleted(MapTile tile, QueryResult result) {
 
-        /* send TILE_LOADED event on main-loop */
-        mMap.post(new JobCompletedEvent(tile, result));
+        if (tile != null) {
+            /* send TILE_LOADED event on main-loop */
+            mMap.post(new JobCompletedEvent(tile, result));
 
-        /* locked means the tile is visible or referenced by
-         * a tile that might be visible. */
-        if (tile.isLocked()) {
-            if (result == QueryResult.DELAYED && tile.isLocked())
-                mMap.updateMap(false);
-            else
-                mMap.render();
+            /* locked means the tile is visible or referenced by
+             * a tile that might be visible. */
+            if (tile.isLocked()) {
+                if (result == QueryResult.DELAYED && tile.isLocked())
+                    mMap.updateMap(false);
+                else
+                    mMap.render();
+            }
         }
     }
 

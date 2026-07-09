@@ -66,6 +66,8 @@ public class XmlThemeBuilder {
 
     private static final Logger log = Logger.getLogger(XmlThemeBuilder.class.getName());
 
+    public static volatile boolean loadImages = true;
+
     private static final int RENDER_THEME_VERSION_MAPSFORGE = 6;
     private static final int RENDER_THEME_VERSION_VTM = 1;
     private static XmlPullParserFactory xmlPullParserFactory = null;
@@ -708,7 +710,7 @@ public class XmlThemeBuilder {
             }
         } else {
             // Line symbol or pattern
-            if (src != null) {
+            if (src != null && loadImages) {
                 b.symbolPercent *= 2;
                 float symbolScale = hasSymbol && Parameters.SYMBOL_SCALING == Parameters.SymbolScaling.ALL ? CanvasAdapter.symbolScale : 1;
                 b.texture = Utils.loadTexture(mTheme.getRelativePathPrefix(), src, mTheme.getResourceProvider(), b.symbolWidth, b.symbolHeight, (int) (b.symbolPercent * symbolScale), mThemeCallback);
@@ -823,7 +825,7 @@ public class XmlThemeBuilder {
                 logUnknownAttribute(elementName, name, value, i);
         }
 
-        if (src != null)
+        if (src != null && loadImages)
             b.texture = Utils.loadTexture(mTheme.getRelativePathPrefix(), src, mTheme.getResourceProvider(), b.symbolWidth, b.symbolHeight, b.symbolPercent, mThemeCallback);
 
         if (mThemeCallback != null) {
@@ -987,7 +989,7 @@ public class XmlThemeBuilder {
 
             if ("xmlns:xsi".equals(name))
                 continue;
-            if ("xsi:schemaLocation".equals(name))
+            if ("schemaLocation".equals(name) || "xsi:schemaLocation".equals(name))
                 continue;
 
             if ("xmlns".equals(name))
